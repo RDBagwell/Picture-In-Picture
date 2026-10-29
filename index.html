@@ -5,13 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Picture In Picture</title>
     <link rel="stylesheet" href="./css/style.css">
+    <!-- Script -->
+    <script src="./js/script.js" defer></script>
 </head>
 <body>
-    <video src="" id="video" controls height="360" width="640" hidden></video>
-    <div class="button-container">
-        <button id="button">Start</button>
-    </div>
-    <!-- Script -->
-    <script src="./js/script.js"></script>
+    <video id="video" playsinline hidden></video>
+    <main class="app">
+        <div class="button-container">
+            <button id="start-button" type="button">Start</button>
+            <button id="pip-button" type="button" disabled>Open PiP</button>
+            <button id="mute-button" type="button" disabled>Unmute</button>
+            <button id="pause-button" type="button" disabled>Pause</button>
+            <button id="stop-button" type="button" disabled>Stop</button>
+        </div>
+        <p id="status" aria-live="polite">Click Start to choose a screen, window, or tab to share.</p>
+    </main>
 </body>
 </html>
