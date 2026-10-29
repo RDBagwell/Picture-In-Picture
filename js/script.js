@@ -1,16 +1,12 @@
 const videoElement = document.getElementById('video');
 const startButton = document.getElementById('start-button');
 const pipButton = document.getElementById('pip-button');
+const stopButton = document.getElementById('stop-button');
 const statusElement = document.getElementById('status');
-
-const hasMediaSession = 'mediaSession' in navigator;
-const hasDocumentPip = 'documentPictureInPicture' in window;
 
 let mediaStream = null;
 // True when the browser silenced the shared tab, so its audio only plays here.
 let audioSuppressed = false;
-// The Document Picture-in-Picture window, while it is open.
-let pipWindow = null;
 let announcedMuted = true;
 
 function setStatus(message) {
@@ -39,43 +35,15 @@ function isCapturing() {
     return mediaStream !== null;
 }
 
-function isInPip() {
-    return pipWindow !== null || document.pictureInPictureElement === videoElement;
-}
-
-// The same action can have a button on this page and one in the PiP window.
-function buttonsFor(action) {
-    const docs = pipWindow ? [document, pipWindow.document] : [document];
-    return docs.flatMap((doc) => [...doc.querySelectorAll(`[data-action="${action}"]`)]);
-}
-
-function setButtons(action, disabled, label) {
-    buttonsFor(action).forEach((button) => {
-        button.disabled = disabled;
-        if (label) {
-            button.textContent = label;
-        }
-    });
-}
-
-// Labels are derived from the video element so that changes made from the
-// PiP window's own controls are reflected here too.
 function updateControls() {
     const capturing = isCapturing();
-    const hasAudio = capturing && mediaStream.getAudioTracks().length > 0;
+    const inPip = document.pictureInPictureElement === videoElement;
     const metadataReady = videoElement.readyState >= HTMLMediaElement.HAVE_METADATA;
 
-    setButtons('start', capturing);
-    setButtons('stop', !capturing, 'Stop');
-    setButtons('pip', !capturing || !metadataReady, isInPip() ? 'Close PiP' : 'Open PiP');
-    setButtons('mute', !hasAudio, videoElement.muted ? 'Unmute' : 'Mute');
-    setButtons('pause', !capturing, capturing && videoElement.paused ? 'Resume' : 'Pause');
-
-    if (hasMediaSession) {
-        navigator.mediaSession.playbackState = !capturing
-            ? 'none'
-            : (videoElement.paused ? 'paused' : 'playing');
-    }
+    startButton.disabled = capturing;
+    stopButton.disabled = !capturing;
+    pipButton.disabled = !capturing || !metadataReady;
+    pipButton.textContent = inPip ? 'Close PiP' : 'Open PiP';
 }
 
 function resetUI(message) {
@@ -93,7 +61,7 @@ function describeAudio() {
         return 'No audio track was captured. To include sound, share a tab with "Share tab audio" turned on.';
     }
     if (audioSuppressed) {
-        return 'The shared tab is silenced and its audio plays from here, so Mute and Pause control what you hear.';
+        return 'The shared tab is silenced and its audio plays from here. Use the mute button in the PiP window.';
     }
     return 'Audio was captured but is muted, because the source is still playing it and unmuting would echo.';
 }
@@ -142,9 +110,6 @@ async function stopCapture(message = 'Capture stopped.') {
     if (stream) {
         stream.getTracks().forEach((track) => track.stop());
     }
-    if (pipWindow) {
-        pipWindow.close();
-    }
     if (document.pictureInPictureElement) {
         try {
             await document.exitPictureInPicture();
@@ -155,67 +120,10 @@ async function stopCapture(message = 'Capture stopped.') {
     resetUI(message);
 }
 
-// Document Picture-in-Picture (Chrome/Edge) lets the floating window hold our
-// own buttons, which the plain video PiP window does not show for live captures.
-async function openDocumentPip() {
-    const wasPaused = videoElement.paused;
-    const aspect = (videoElement.videoHeight / videoElement.videoWidth) || 9 / 16;
-    const width = 640;
-    const win = await documentPictureInPicture.requestWindow({
-        width,
-        height: Math.round(width * aspect) + 64,
-    });
-    pipWindow = win;
-
-    const stylesheet = win.document.createElement('link');
-    stylesheet.rel = 'stylesheet';
-    stylesheet.href = document.querySelector('link[rel="stylesheet"]').href;
-    win.document.head.append(stylesheet);
-    win.document.body.classList.add('pip-body');
-
-    const controls = win.document.createElement('div');
-    controls.className = 'pip-controls';
-    ['mute', 'pause', 'stop'].forEach((action) => {
-        const button = win.document.createElement('button');
-        button.type = 'button';
-        button.dataset.action = action;
-        controls.append(button);
-    });
-
-    videoElement.hidden = false;
-    win.document.body.append(videoElement, controls);
-    win.document.addEventListener('click', handleClick);
-    win.addEventListener('pagehide', onDocumentPipClosed);
-
-    if (!wasPaused) {
-        await playVideo();
-    }
-    updateControls();
-    setStatus('Picture-in-Picture opened. Mute, Pause and Stop are also in the floating window.');
-}
-
-function onDocumentPipClosed() {
-    const wasPaused = videoElement.paused;
-    pipWindow = null;
-    videoElement.hidden = true;
-    document.body.prepend(videoElement);
-    if (isCapturing()) {
-        if (!wasPaused) {
-            playVideo();
-        }
-        setStatus('Picture-in-Picture closed. Capture is still running.');
-    }
-    updateControls();
-}
-
 async function togglePictureInPicture() {
     try {
-        if (pipWindow) {
-            pipWindow.close();
-        } else if (document.pictureInPictureElement) {
+        if (document.pictureInPictureElement) {
             await document.exitPictureInPicture();
-        } else if (hasDocumentPip) {
-            await openDocumentPip();
         } else {
             await videoElement.requestPictureInPicture();
         }
@@ -225,75 +133,12 @@ async function togglePictureInPicture() {
     updateControls();
 }
 
-async function playVideo() {
-    if (!isCapturing()) {
-        return;
-    }
-    try {
-        await videoElement.play();
-    } catch (error) {
-        setStatus(describeError(error, 'Playback'));
-    }
-}
-
-function pauseVideo() {
-    if (isCapturing()) {
-        videoElement.pause();
-    }
-}
-
-function togglePause() {
-    if (videoElement.paused) {
-        playVideo();
-        setStatus('Preview resumed. It jumps to whatever the source is showing now.');
-    } else {
-        pauseVideo();
-        setStatus("Preview paused. The shared tab itself keeps playing, because a web page can't pause another tab.");
-    }
-}
-
-const actions = {
-    start: selectMediaStream,
-    pip: togglePictureInPicture,
-    mute: () => { videoElement.muted = !videoElement.muted; },
-    pause: togglePause,
-    stop: () => stopCapture(),
-};
-
-// One handler serves the buttons on this page and in the PiP window.
-function handleClick(event) {
-    const button = event.target.closest('[data-action]');
-    if (button && !button.disabled) {
-        actions[button.dataset.action]();
-    }
-}
-
-function setupMediaSession() {
-    if (!hasMediaSession) {
-        return;
-    }
-    const handlers = {
-        play: playVideo,
-        pause: pauseVideo,
-        stop: () => stopCapture(),
-    };
-    Object.entries(handlers).forEach(([action, handler]) => {
-        try {
-            navigator.mediaSession.setActionHandler(action, handler);
-        } catch (error) {
-            // Older browsers throw for actions they don't know (often "stop").
-            console.warn(`Media Session action "${action}" is not supported.`);
-        }
-    });
-}
-
 function init() {
     const hasDisplayMedia = Boolean(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
-    const hasPip = hasDocumentPip
-        || Boolean(document.pictureInPictureEnabled && videoElement.requestPictureInPicture);
+    const hasPip = Boolean(document.pictureInPictureEnabled && videoElement.requestPictureInPicture);
 
     if (!hasDisplayMedia || !hasPip) {
-        document.querySelectorAll('[data-action]').forEach((button) => { button.disabled = true; });
+        [startButton, pipButton, stopButton].forEach((button) => { button.disabled = true; });
         const missing = [];
         if (!hasDisplayMedia) {
             missing.push(window.isSecureContext
@@ -310,15 +155,16 @@ function init() {
     videoElement.muted = true;
 
     videoElement.addEventListener('loadedmetadata', async () => {
-        await playVideo();
+        try {
+            await videoElement.play();
+        } catch (error) {
+            setStatus(describeError(error, 'Playback'));
+        }
         updateControls();
         pipButton.focus();
     });
-    videoElement.addEventListener('play', updateControls);
-    videoElement.addEventListener('pause', updateControls);
-    // Also catches the mute button in the browser's own PiP window.
+    // Fires when the mute button in the PiP window is used.
     videoElement.addEventListener('volumechange', () => {
-        updateControls();
         if (isCapturing() && videoElement.muted !== announcedMuted) {
             announcedMuted = videoElement.muted;
             if (videoElement.muted) {
@@ -338,9 +184,10 @@ function init() {
         }
     });
 
-    document.addEventListener('click', handleClick);
+    startButton.addEventListener('click', selectMediaStream);
+    pipButton.addEventListener('click', togglePictureInPicture);
+    stopButton.addEventListener('click', () => stopCapture());
 
-    setupMediaSession();
     updateControls();
 }
 
