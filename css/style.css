@@ -77,3 +77,34 @@ button:disabled{
     color: #ddd;
     text-align: center;
 }
+
+/* Document Picture-in-Picture window */
+.pip-body{
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    height: 100vh;
+    min-height: 0;
+    background: black;
+}
+
+.pip-body video{
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    object-fit: contain;
+}
+
+.pip-controls{
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    background: rgb(37, 37, 37);
+}
+
+.pip-controls button{
+    flex: 1;
+    min-width: 0;
+    height: 48px;
+    font-size: 1.1rem;
+}
